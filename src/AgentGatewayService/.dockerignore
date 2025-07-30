@@ -1,0 +1,28 @@
+# .NET build outputs
+bin/
+obj/
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# Git files
+.git
+.gitignore
+
+# User-specific files
+*.user
+*.suo
+*.userprefs
+*.sln.docstates
+
+# VS Code files
+.vscode/
+
+# Visual Studio files
+.vs/
+*.csproj.user
+
+# logs
+logs/
+*.log

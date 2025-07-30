@@ -1,0 +1,19 @@
+syntax = "proto3";
+option csharp_namespace = "BattleService.Protos";
+
+package battle;
+
+message AgentTurn {
+  string playerId = 1;
+  int32 tick = 2;
+  bytes payload = 3; // arbitrary command (e.g. JSON, protobuf, etc.)
+}
+
+message ServerUpdate {
+  int32 tick = 1;
+  bytes state = 2; // snapshot for the agent
+}
+
+service BattleSynchronizer {
+  rpc Connect (stream AgentTurn) returns (stream ServerUpdate);
+}

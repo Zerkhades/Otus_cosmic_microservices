@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'player-service'
+    static_configs:
+      - targets: ['player-service:5001']
+
+  - job_name: 'tournament-service'
+    static_configs:
+      - targets: ['tournament-service:5002']
+
+  - job_name: 'battle-service'
+    static_configs:
+      - targets: ['battle-service:5003']
+
+  - job_name: 'notification-service'
+    static_configs:
+      - targets: ['notification-service:5004']
+  
+  - job_name: 'agent-gateway-service'
+    static_configs:
+      - targets: ['agent-gateway-service:5005']
+  
+  - job_name: 'identityserver'
+    static_configs:
+      - targets: ['identityserver:7000']
