@@ -1,0 +1,159 @@
+version: "3.9"
+
+services:
+  # ---------------- Infrastructure ----------------
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [ cosmic-net ]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      retries: 5
+
+  mongo:
+    image: mongo:7.0
+    restart: always
+    networks: [ cosmic-net ]
+    volumes:
+      - mongodb:/data/db
+
+  zookeeper:
+    image: bitnami/zookeeper:3.9
+    restart: always
+    environment:
+      ALLOW_ANONYMOUS_LOGIN: "yes"
+    networks: [ cosmic-net ]
+
+  kafka:
+    image: bitnami/kafka:3.7
+    restart: always
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks: [ cosmic-net ]
+
+  proxy:
+    build: ./src/YARP/
+    ports:
+      - "8080:8080"
+    networks: [ cosmic-net ]
+
+  # ---------------- Microservices ----------------
+  player-service:
+    build: ./src/PlayerService
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=players;Username=postgres;Password=pass
+      Kafka__BootstrapServers: kafka:9092
+      ASPNETCORE_URLS: http://0.0.0.0:5001
+    ports:
+      - "5001:5001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks: [ cosmic-net ]
+
+  tournament-service:
+    build: ./src/TournamentService
+    environment:
+      Mongo__ConnectionString: mongodb://mongo:27017
+      Kafka__BootstrapServers: kafka:9092
+      ASPNETCORE_URLS: http://0.0.0.0:5002
+    ports:
+      - "5002:5002"
+    depends_on:
+      - mongo
+      - kafka
+    networks: [ cosmic-net ]
+
+  battle-service:
+    build: ./src/BattleService
+    environment:
+      Kafka__BootstrapServers: kafka:9092
+      # ASPNETCORE_URLS: http://0.0.0.0:5003
+    ports:
+        - "5003:5003"   # REST/health/metrics
+        - "5007:5007"   # gRPC h2c
+    depends_on:
+      - kafka
+    networks: [ cosmic-net ]
+
+  notification-service:
+    build: ./src/NotificationService
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=notifications;Username=postgres;Password=pass
+      Kafka__BootstrapServers: kafka:9092
+      ASPNETCORE_URLS: http://0.0.0.0:5004
+    ports:
+      - "5004:5004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks: [ cosmic-net ]
+
+  agent-gateway-service:
+    build: ./src/AgentGatewayService
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=agents;Username=postgres;Password=pass
+      Kafka__BootstrapServers: kafka:9092
+      BattleService__Grpc: http://battle-service:5007
+      ASPNETCORE_URLS: http://0.0.0.0:5005
+    ports:
+      - "5005:5005"
+    depends_on:
+      - kafka
+    networks: [ cosmic-net ]
+
+  identityserver:
+    build: ./src/IdentityServer
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=auth;Username=postgres;Password=pass
+      ASPNETCORE_URLS: http://0.0.0.0:7000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [ cosmic-net ]
+    ports:
+      - "7000:7000"
+
+  # ---------------- Observability (optional) ----------------
+  prometheus:
+    image: prom/prometheus:latest
+    networks: [ cosmic-net ]
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:10.3.1
+    networks: [ cosmic-net ]
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+
+networks:
+  cosmic-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  mongodb:
