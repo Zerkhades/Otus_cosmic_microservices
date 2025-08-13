@@ -2,11 +2,11 @@
   "profiles": {
     "BattleService": {
       "commandName": "Project",
-      "launchBrowser": true,
+      "dotnetRunMessages": true,
+      "applicationUrl": "http://localhost:5003",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
-      },
-      "applicationUrl": "https://localhost:52187;http://localhost:52188"
+      }
     }
   }
 }

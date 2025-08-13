@@ -2,11 +2,11 @@
   "profiles": {
     "AgentGatewayService": {
       "commandName": "Project",
-      "launchBrowser": true,
+      "dotnetRunMessages": true,
+      "applicationUrl": "http://localhost:5005",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
-      },
-      "applicationUrl": "https://localhost:54751;http://localhost:54752"
+      }
     }
   }
 }

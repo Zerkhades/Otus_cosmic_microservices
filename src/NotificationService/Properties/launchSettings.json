@@ -2,11 +2,8 @@
   "profiles": {
     "NotificationService": {
       "commandName": "Project",
-      "launchBrowser": true,
-      "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
-      },
-      "applicationUrl": "https://localhost:50260;http://localhost:50261"
+      "applicationUrl": "http://localhost:5004",
+      "environmentVariables": { "ASPNETCORE_ENVIRONMENT": "Development" }
     }
   }
 }

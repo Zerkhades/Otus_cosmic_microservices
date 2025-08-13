@@ -85,9 +85,10 @@ services:
     build: ./src/BattleService
     environment:
       Kafka__BootstrapServers: kafka:9092
-      ASPNETCORE_URLS: http://0.0.0.0:5003
+      # ASPNETCORE_URLS: http://0.0.0.0:5003
     ports:
-      - "5003:5003"
+        - "5003:5003"   # REST/health/metrics
+        - "5007:5007"   # gRPC h2c
     depends_on:
       - kafka
     networks: [ cosmic-net ]
@@ -112,7 +113,8 @@ services:
     environment:
       ConnectionStrings__Default: Host=postgres;Database=agents;Username=postgres;Password=pass
       Kafka__BootstrapServers: kafka:9092
-      ASPNETCORE_URLS: http://0.0.0:5005
+      BattleService__Grpc: http://battle-service:5007
+      ASPNETCORE_URLS: http://0.0.0.0:5005
     ports:
       - "5005:5005"
     depends_on:
@@ -122,14 +124,14 @@ services:
   identityserver:
     build: ./src/IdentityServer
     environment:
-     ConnectionStrings__Default: Host=postgres;Database=notifications;Username=postgres;Password=pass
-     ASPNETCORE_URLS: http://0.0.0.0:7000
-    ports:
-     - "7000:7000"
+      ConnectionStrings__Default: Host=postgres;Database=auth;Username=postgres;Password=pass
+      ASPNETCORE_URLS: http://0.0.0.0:7000
     depends_on:
       postgres:
         condition: service_healthy
     networks: [ cosmic-net ]
+    ports:
+      - "7000:7000"
 
   # ---------------- Observability (optional) ----------------
   prometheus:

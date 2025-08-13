@@ -16,12 +16,30 @@ builder.Services.AddOpenApi();
 builder.Services.AddDbContext<AuthDb>(opt =>
     opt.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
-builder.Services
-    .AddIdentity<ApplicationUser, IdentityRole>()
-    .AddEntityFrameworkStores<AuthDb>()
-    .AddDefaultTokenProviders();
+builder.Services.ConfigureApplicationCookie(o =>
+{
+    o.Cookie.Name = ".AspNetCore.Identity.Application";
+    o.Cookie.SameSite = SameSiteMode.Lax;        // ← ключевое
+    o.Cookie.SecurePolicy = CookieSecurePolicy.None; // dev: http
+});
 
-builder.Services.AddIdentityServer()
+builder.Services.ConfigureExternalCookie(o =>
+{
+    o.Cookie.SameSite = SameSiteMode.Lax;
+    o.Cookie.SecurePolicy = CookieSecurePolicy.None;
+});
+
+builder.Services
+    .AddIdentity<ApplicationUser, IdentityRole>(options => options.SignIn.RequireConfirmedAccount = true)
+    .AddEntityFrameworkStores<AuthDb>()
+    .AddDefaultTokenProviders()
+    .AddDefaultUI();
+
+builder.Services.AddIdentityServer(options =>
+{
+    options.Authentication.CookieSameSiteMode = SameSiteMode.Lax;
+    options.Authentication.CheckSessionCookieSameSiteMode = SameSiteMode.Lax;
+})
     .AddInMemoryIdentityResources(Config.IdentityResources)
     .AddInMemoryApiScopes(Config.ApiScopes)
     .AddInMemoryClients(Config.Clients)
@@ -43,7 +61,15 @@ builder.Services.AddCors(opt =>
         .AllowAnyMethod());
 });
 
+builder.Services.AddRazorPages();
+
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AuthDb>();
+    db.Database.Migrate();
+}
 
 app.MapGet("/", () => "Identity server up");
 
@@ -53,17 +79,27 @@ await Seed.CreateTestUser(app.Services);
     app.MapOpenApi();
 }
 
-app.UseForwardedHeaders();    // �� IdentityServer
+app.UseAuthentication();
+
+app.UseForwardedHeaders();
 app.UsePathBase("/auth");
 app.UseCors("spa");
+
+app.UseCookiePolicy(new CookiePolicyOptions
+{
+    MinimumSameSitePolicy = SameSiteMode.Lax,
+    Secure = CookieSecurePolicy.None
+});
+
+// dev: не редиректим в https за прокси
+//app.UseHttpsRedirection();
+
+app.UseAuthentication();
+
 app.UseIdentityServer();
-
-app.UseHttpsRedirection();
-
-
-
 app.UseAuthorization();
 
+app.MapRazorPages();
 app.MapControllers();
 
 app.Run();

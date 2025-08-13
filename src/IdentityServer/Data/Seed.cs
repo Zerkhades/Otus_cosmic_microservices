@@ -12,7 +12,7 @@ namespace IdentityServer.Data
             var ctx = scope.ServiceProvider.GetRequiredService<AuthDb>();
             var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-            await ctx.Database.MigrateAsync();                  // применяем миграции (SQLite создаст файл)
+            await ctx.Database.MigrateAsync();
 
             const string userName = "demo";
             const string pass = "Pass123$";

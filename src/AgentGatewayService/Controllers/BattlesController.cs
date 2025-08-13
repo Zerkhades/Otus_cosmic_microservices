@@ -18,14 +18,14 @@ public class BattlesController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> CreateBattle([FromBody] CreateBattleRequest request, CancellationToken cancellationToken)
+    public async Task<IActionResult> CreateBattle([FromBody] CreateBattleRequest request, CancellationToken cancellationToken, Guid battleId)
     {
         if (request.TournamentId == Guid.Empty || request.Participants == null || !request.Participants.Any())
         {
             return BadRequest(new { error = "Invalid battle request. TournamentId and at least one participant are required." });
         }
 
-        var battleId = Guid.NewGuid();
+        //var battleId = Guid.NewGuid();
         
         // Create event payload
         var eventPayload = new

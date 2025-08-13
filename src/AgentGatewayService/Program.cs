@@ -1,48 +1,69 @@
+﻿using AgentGatewayService.Controllers;
+using AgentGatewayService.Protos;
 using AgentGatewayService.Services;
 using Confluent.Kafka;
+using Google.Protobuf;
+using Grpc.Core;
+using Grpc.Net.Client;
 using MediatR;
-using OpenTelemetry.Metrics;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.IdentityModel.Tokens;
+using OpenTelemetry.Metrics;
+using System.Net.Http;
+using System.Security.Claims;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
 
-// Add services to the container
-builder.Services.AddGrpc();
-builder.Services.AddSignalR();
-builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<Program>());
+// Разрешаем HTTP/2 без TLS для gRPC (h2c)
+AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
 
-// Add gRPC client for BattleService
-builder.Services.AddGrpcClient<AgentGatewayService.Protos.BattleSynchronizer.BattleSynchronizerClient>(o =>
-{
-    o.Address = new Uri(cfg["BattleService:Grpc"] ?? "https://battle-service:5003");
-});
+// --- Services ---
 
-// Kafka producer for sending events
-var kafkaConfig = new ProducerConfig { BootstrapServers = cfg["Kafka:BootstrapServers"] };
-builder.Services.AddSingleton(_ => new ProducerBuilder<string, string>(kafkaConfig).Build());
-builder.Services.AddSingleton<IKafkaProducerWrapper, KafkaProducerWrapper>();
-
-// Add controllers and API explorer
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Add connection manager for agent connections
+builder.Services.AddGrpc();          // не обязателен, но ок
+builder.Services.AddSignalR();
+
+builder.Services.AddMediatR(opt => opt.RegisterServicesFromAssemblyContaining<Program>());
+
+// gRPC client (если где-то инжектируется) — база HTTP, не HTTPS
+builder.Services
+  .AddGrpcClient<BattleSynchronizer.BattleSynchronizerClient>(o =>
+  {
+      o.Address = new Uri(cfg["BattleService:Grpc"] ?? "http://battle-service:5007");
+  })
+  .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+  {
+      EnableMultipleHttp2Connections = true
+  });
+
+// Kafka
+var kafkaConfig = new ProducerConfig { BootstrapServers = cfg["Kafka:BootstrapServers"] ?? "kafka:9092" };
+builder.Services.AddSingleton(_ => new ProducerBuilder<string, string>(kafkaConfig).Build());
+builder.Services.AddSingleton<IKafkaProducerWrapper, KafkaProducerWrapper>();
+
+// Менеджер подключений
 builder.Services.AddSingleton<AgentConnectionManager>();
 
-// CORS configuration for web clients
+// CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowedOrigins", policy =>
     {
         policy.WithOrigins(cfg.GetSection("AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:5173" })
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
     });
 });
 
+// OpenTelemetry (метрики + /metrics)
 builder.Services.AddOpenTelemetry()
     .WithMetrics(b =>
     {
@@ -53,40 +74,245 @@ builder.Services.AddOpenTelemetry()
         b.AddPrometheusExporter();
     });
 
+// AuthN/AuthZ
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =>
+    {
+        o.Authority = "http://identityserver:7000/auth";
+        o.RequireHttpsMetadata = false;
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateAudience = false,
+            ValidIssuers = new[]
+            {
+                "http://identityserver:7000/auth", // внутренняя
+                "http://localhost:8080/auth"       // внешняя (через YARP)
+            }
+        };
+        // Поднимаем токен из query-параметра для /ws/game
+        o.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = ctx =>
+            {
+                if (ctx.Request.Path.StartsWithSegments("/ws/game"))
+                {
+                    var t = ctx.Request.Query["access_token"];
+                    if (!string.IsNullOrEmpty(t))
+                        ctx.Token = t;
+                }
+                return Task.CompletedTask;
+            }
+        };
+    });
 
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline
-//if (app.Environment.IsDevelopment())
-//{
+// --- Pipeline порядок важен ---
+
 app.UseSwagger();
 app.UseSwaggerUI();
-//}
 
-app.UseCors("AllowedOrigins");
 app.UseRouting();
+app.UseCors("AllowedOrigins");
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseWebSockets();
 
-// Map SignalR hubs
+// Метрики Prometheus
+app.UseOpenTelemetryPrometheusScrapingEndpoint();
+
+// --- Endpoints ---
+
+// SignalR (если используешь для чего-то)
 app.MapHub<AgentHub>("/hubs/agent");
 
-// Map controllers
+// Контроллеры (в т.ч. [Authorize] на экшенах)
 app.MapControllers();
 
-// Map minimal API endpoints
+// Health
+app.MapGet("/healthz", () => Results.Ok("ok"));
+
+// Статус
+app.MapGet("/", () => Results.Content("Agent Gateway Service up", contentType: "text/plain"));
+
+// Демонстрационный матчмейкинг — требует авторизации
+app.MapPost("/api/matchmaking/casual", async (
+    ClaimsPrincipal user,
+    IKafkaProducerWrapper kafka,
+    CancellationToken ct) =>
+{
+    var tournamentId = Guid.NewGuid();
+    var battleId = Guid.NewGuid();
+
+    var playerIdStr = user.FindFirst("sub")?.Value;
+    if (!Guid.TryParse(playerIdStr, out var playerId))
+        return Results.Unauthorized();
+
+    var payload = JsonSerializer.Serialize(new
+    {
+        battleId,
+        tournamentId,
+        participants = new[] { playerId }
+    });
+
+    await kafka.PublishAsync("battle.created", payload, ct);
+
+    return Results.Ok(new { battleId });
+});//.RequireAuthorization();
+
+// Подключение агента через менеджер (если используешь)
 app.MapPost("/api/battles/{battleId:guid}/connect", async (
     Guid battleId,
-    Guid playerId,
+    [FromQuery] Guid playerId,
     AgentConnectionManager connectionManager,
-    AgentGatewayService.Protos.BattleSynchronizer.BattleSynchronizerClient battleClient,
+    BattleSynchronizer.BattleSynchronizerClient battleClient,
     CancellationToken cancellationToken) =>
 {
     var connectionId = await connectionManager.RegisterAgentAsync(battleId, playerId, battleClient, cancellationToken);
     return Results.Ok(new { connectionId });
 });
 
-app.UseOpenTelemetryPrometheusScrapingEndpoint();
+// WebSocket → gRPC мост (основной поток игры)
+app.Map("/ws/game", async (
+    HttpContext ctx,
+    AgentGatewayService.Protos.BattleSynchronizer.BattleSynchronizerClient battleClient,
+    ILoggerFactory loggerFactory) =>
+{
+    var logger = loggerFactory.CreateLogger("WsGame");
 
-app.MapGet("/", () => Results.Content("Agent Gateway Service up", contentType: "text/plain"));
+    // 1) Проверка аутентификации
+    if (!ctx.User.Identity?.IsAuthenticated ?? true)
+    {
+        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await ctx.Response.WriteAsync("unauthorized");
+        return;
+    }
+
+    // 2) Извлечём playerId из токена
+    var playerId = ctx.User.FindFirst("sub")?.Value
+                   ?? ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+    if (string.IsNullOrWhiteSpace(playerId))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await ctx.Response.WriteAsync("missing sub");
+        return;
+    }
+
+    // 3) battleId из query
+    if (!Guid.TryParse(ctx.Request.Query["battleId"], out var battleId))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await ctx.Response.WriteAsync("battleId required");
+        return;
+    }
+
+    // 4) Поднимаем токен из query для проброса в gRPC (если нужен на бэкенде)
+    var token = ctx.Request.Query["access_token"].ToString();
+
+    if (!ctx.WebSockets.IsWebSocketRequest)
+    {
+        ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await ctx.Response.WriteAsync("expected WebSocket");
+        return;
+    }
+
+    using var ws = await ctx.WebSockets.AcceptWebSocketAsync();
+
+    // 5) Метаданные к gRPC-вызову
+    var headers = new Grpc.Core.Metadata
+    {
+        { "battle-id", battleId.ToString() }
+    };
+    if (!string.IsNullOrEmpty(token))
+        headers.Add("Authorization", $"Bearer {token}");
+
+    // 6) Открываем дуплексный стрим
+    Grpc.Core.AsyncDuplexStreamingCall<AgentGatewayService.Protos.AgentTurn, AgentGatewayService.Protos.ServerUpdate>? call;
+    try
+    {
+        call = battleClient.Connect(headers: headers, cancellationToken: ctx.RequestAborted);
+        logger.LogInformation("gRPC Connect opened for battle {BattleId}, player {PlayerId}", battleId, playerId);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed to open gRPC Connect");
+        await ws.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.InternalServerError, "grpc connect failed", ctx.RequestAborted);
+        return;
+    }
+
+    // 7) WS → gRPC
+    var tSend = Task.Run(async () =>
+    {
+        var buffer = new byte[32 * 1024];
+
+        try
+        {
+            while (!ctx.RequestAborted.IsCancellationRequested)
+            {
+                var res = await ws.ReceiveAsync(buffer, ctx.RequestAborted);
+                if (res.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+                    break;
+
+                var payload = Google.Protobuf.ByteString.CopyFrom(buffer.AsSpan(0, res.Count).ToArray());
+
+                await call.RequestStream.WriteAsync(new AgentGatewayService.Protos.AgentTurn
+                {
+                    PlayerId = playerId,
+                    Tick = (int)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Payload = payload
+                }, ctx.RequestAborted);
+            }
+
+            await call.RequestStream.CompleteAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // ignore – shutting down
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "WS → gRPC loop ended");
+            try { await call.RequestStream.CompleteAsync(); } catch { /* ignore */ }
+        }
+    }, ctx.RequestAborted);
+
+    // 8) gRPC → WS
+    var tRecv = Task.Run(async () =>
+    {
+        try
+        {
+            await foreach (var update in call.ResponseStream.ReadAllAsync(ctx.RequestAborted))
+            {
+                var bytes = update.State.ToByteArray();
+                await ws.SendAsync(
+                    bytes,
+                    System.Net.WebSockets.WebSocketMessageType.Binary,
+                    endOfMessage: true,
+                    cancellationToken: ctx.RequestAborted);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // ignore – shutting down
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "gRPC → WS loop ended");
+        }
+    }, ctx.RequestAborted);
+
+    // 9) Ждём завершения одного из направлений и закрываем WS
+    await Task.WhenAny(tSend, tRecv);
+
+    try
+    {
+        await ws.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "bye", ctx.RequestAborted);
+    }
+    catch { /* ignore */ }
+}).RequireAuthorization();
 
 app.Run();

@@ -1,4 +1,5 @@
 ﻿using BattleService.GameLogic.Abstractions;
+using BattleService.GameLogic.Commands;
 using BattleService.GameLogic.Entities;
 using System.Linq;
 
@@ -33,6 +34,14 @@ namespace BattleService.GameLogic.Engine
         {
             var newPos = obj.Position + obj.Velocity * dt;
             typeof(IMovable).GetProperty("Position")!.SetValue(obj, newPos);
+        }
+        /// <summary>
+        /// Гарантирует, что в мире есть корабль игрока. Потокобезопасно:
+        /// просто кладёт команду в очередь, обработка — в тике.
+        /// </summary>
+        public void RegisterPlayer(Guid playerId)
+        {
+            Enqueue(new EnsurePlayerCommand(playerId));
         }
     }
 
