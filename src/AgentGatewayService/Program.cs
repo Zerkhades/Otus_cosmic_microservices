@@ -141,21 +141,22 @@ app.MapGet("/", () => Results.Content("Agent Gateway Service up", contentType: "
 // Демонстрационный матчмейкинг — требует авторизации
 app.MapPost("/api/matchmaking/casual", async (
     ClaimsPrincipal user,
+    HttpContext ctx,
     IKafkaProducerWrapper kafka,
     CancellationToken ct) =>
 {
     var tournamentId = Guid.NewGuid();
     var battleId = Guid.NewGuid();
 
-    var playerIdStr = user.FindFirst("sub")?.Value;
-    if (!Guid.TryParse(playerIdStr, out var playerId))
-        return Results.Unauthorized();
+    //var playerIdStr = ctx.User.FindFirst("sub")?.Value;
+    //if (!Guid.TryParse(playerIdStr, out var playerId))
+    //    return Results.Unauthorized();
 
     var payload = JsonSerializer.Serialize(new
     {
         battleId,
         tournamentId,
-        participants = new[] { playerId }
+        participants = new[] { "42aa8186-e520-49a3-9631-847d8b84129f" }
     });
 
     await kafka.PublishAsync("battle.created", payload, ct);

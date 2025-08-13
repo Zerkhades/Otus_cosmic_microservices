@@ -181,9 +181,9 @@ public sealed class BattleSyncService : BattleSynchronizer.BattleSynchronizerBas
                 world.AcceptPayload(msg.PlayerId ?? playerId, msg.Payload.Span);
 
                 // аудит в фоне (не блокируем стрим)
-                _ = Task.Run(() => _mediator.Send(new SubmitTurnCommand(
-                    battleId, msg.PlayerId ?? playerId, msg.Tick, msg.Payload.ToByteArray()
-                )), context.CancellationToken);
+                //_ = Task.Run(() => _mediator.Send(new SubmitTurnCommand(
+                //    battleId, msg.PlayerId ?? playerId, msg.Tick, msg.Payload.ToByteArray()
+                //)), context.CancellationToken);
             }
         }
         catch (OperationCanceledException) { }
