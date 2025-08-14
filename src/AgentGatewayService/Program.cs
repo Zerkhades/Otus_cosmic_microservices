@@ -145,8 +145,8 @@ app.MapPost("/api/matchmaking/casual", async (
     IKafkaProducerWrapper kafka,
     CancellationToken ct) =>
 {
-    var tournamentId = Guid.NewGuid();
-    var battleId = Guid.NewGuid();
+    var tournamentId = "42aa8186-e520-49a3-9631-847d8b84129b";
+    var battleId = "42aa8186-e520-49a3-9631-847d8b84129a";
 
     //var playerIdStr = ctx.User.FindFirst("sub")?.Value;
     //if (!Guid.TryParse(playerIdStr, out var playerId))
@@ -156,7 +156,7 @@ app.MapPost("/api/matchmaking/casual", async (
     {
         battleId,
         tournamentId,
-        participants = new[] { "42aa8186-e520-49a3-9631-847d8b84129f" }
+        participants = new[] { "42aa8186-e520-49a3-9631-847d8b84129f" , "3bcd880d-3e63-4787-bc10-72ef4326b4a5" }
     });
 
     await kafka.PublishAsync("battle.created", payload, ct);
@@ -288,12 +288,23 @@ app.Map("/ws/game", async (
         {
             await foreach (var update in call.ResponseStream.ReadAllAsync(ctx.RequestAborted))
             {
-                var bytes = update.State.ToByteArray();
+                var stateBytes = update.State.ToByteArray();
+
+                using var ms = new MemoryStream();
+                using (var writer = new Utf8JsonWriter(ms))
+                {
+                    writer.WriteStartObject();
+                    writer.WriteNumber("tick", update.Tick);
+                    writer.WritePropertyName("state");
+                    using var doc = JsonDocument.Parse(stateBytes);
+                    doc.RootElement.WriteTo(writer);
+                    writer.WriteEndObject();
+                }
                 await ws.SendAsync(
-                    bytes,
-                    System.Net.WebSockets.WebSocketMessageType.Binary,
-                    endOfMessage: true,
-                    cancellationToken: ctx.RequestAborted);
+                    ms.ToArray(),
+                    System.Net.WebSockets.WebSocketMessageType.Text,
+                    true,
+                    ctx.RequestAborted);
             }
         }
         catch (OperationCanceledException)

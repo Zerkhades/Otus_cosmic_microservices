@@ -8,7 +8,7 @@ namespace BattleService.GameLogic.Entities
     {
         public Guid Id { get; init; } = Guid.NewGuid();
         public Guid PlayerId { get; init; }
-        public Vector2 Position { get; private set; }
+        public Vector2 Position { get; set; }
         public Vector2 Velocity { get; private set; }
         public float RotationDeg { get; private set; }
 
@@ -38,5 +38,10 @@ namespace BattleService.GameLogic.Entities
 
         public IEnumerable<IWeapon> Weapons => _weapons;
         public void Equip(IWeapon weapon) => _weapons.Add(weapon);
+
+        public void Move(Vector2 delta)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

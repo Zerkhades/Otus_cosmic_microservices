@@ -53,6 +53,16 @@ public sealed class GameWorld
         try { _cts?.Cancel(); } catch { /* ignore */ }
     }
 
+    public async Task StopAsync()
+    {
+        // Опц. метод для аккуратной остановки (не ломаем существующие вызовы Stop())
+        try { _cts?.Cancel(); } catch { /* ignore */ }
+        if (_loopTask != null)
+        {
+            try { await _loopTask.ConfigureAwait(false); } catch { /* ignore */ }
+        }
+    }
+
     public Client AddConnection(IServerStreamWriter<ServerUpdate> stream, string playerId)
     {
         var c = new Client(stream, playerId);
@@ -71,10 +81,18 @@ public sealed class GameWorld
     public void AcceptPayload(string playerId, ReadOnlySpan<byte> payload)
     {
         LastActivityUtc = DateTime.UtcNow;
+
+        if (!Guid.TryParse(playerId, out var playerGuid))
+        {
+            _log.LogWarning("Bad playerId format for battle {BattleId}: {PlayerId}", BattleId, playerId);
+            return;
+        }
+
         try
         {
-            var text = System.Text.Encoding.UTF8.GetString(payload);
-            using var doc = JsonDocument.Parse(text);
+            // Используем byte[] для совместимости с доступными перегрузками JsonDocument.Parse
+            var jsonBytes = payload.ToArray();
+            using var doc = JsonDocument.Parse(jsonBytes);
             var root = doc.RootElement;
 
             // Поддерживаем ДВА формата:
@@ -87,24 +105,28 @@ public sealed class GameWorld
             {
                 foreach (var j in commands.EnumerateArray())
                 {
-                    var type = j.GetProperty("type").GetString();
+                    if (!j.TryGetProperty("type", out var typeProp)) continue;
+                    var type = typeProp.GetString();
                     switch (type)
                     {
                         case "TURN":
-                            var v = j.GetProperty("value").GetInt32(); // -1,0,1
-                            _inbox.Enqueue(gl => gl.Enqueue(new TurnCommand(Guid.Parse(playerId), v * (float)(180.0 * TickDt))));
+                            if (j.TryGetProperty("value", out var vProp))
+                            {
+                                var v = vProp.GetInt32(); // -1,0,1
+                                _inbox.Enqueue(gl => gl.Enqueue(new TurnCommand(playerGuid, v * (float)(180.0 * TickDt))));
+                            }
                             break;
 
                         case "MOVE":
-                            var thrust = j.GetProperty("thrust").GetBoolean();
-                            var brake = j.GetProperty("brake").GetBoolean();
+                            var thrust = j.TryGetProperty("thrust", out var thrustProp) && thrustProp.GetBoolean();
+                            var brake = j.TryGetProperty("brake", out var brakeProp) && brakeProp.GetBoolean();
                             // пускай MoveCommand принимает дельту тяги: thrust=+1, brake=-1, иначе 0
                             var delta = thrust ? 1f : brake ? -1f : 0f;
-                            _inbox.Enqueue(gl => gl.Enqueue(new MoveCommand(Guid.Parse(playerId), delta)));
+                            _inbox.Enqueue(gl => gl.Enqueue(new MoveCommand(playerGuid, delta)));
                             break;
 
                         case "SHOOT":
-                            _inbox.Enqueue(gl => gl.Enqueue(new ShootCommand(Guid.Parse(playerId), "primary")));
+                            _inbox.Enqueue(gl => gl.Enqueue(new ShootCommand(playerGuid, "primary")));
                             break;
                     }
                 }
@@ -114,19 +136,29 @@ public sealed class GameWorld
                 switch (legacyCmd.GetString())
                 {
                     case "turn":
-                        var deg = root.GetProperty("deg").GetSingle();
-                        _inbox.Enqueue(gl => gl.Enqueue(new TurnCommand(Guid.Parse(playerId), deg)));
+                        if (root.TryGetProperty("deg", out var degProp))
+                        {
+                            var deg = degProp.GetSingle();
+                            _inbox.Enqueue(gl => gl.Enqueue(new TurnCommand(playerGuid, deg)));
+                        }
                         break;
                     case "move":
-                        var d = root.GetProperty("delta").GetSingle();
-                        _inbox.Enqueue(gl => gl.Enqueue(new MoveCommand(Guid.Parse(playerId), d)));
+                        if (root.TryGetProperty("delta", out var dProp))
+                        {
+                            var d = dProp.GetSingle();
+                            _inbox.Enqueue(gl => gl.Enqueue(new MoveCommand(playerGuid, d)));
+                        }
                         break;
                     case "shoot":
                         var w = root.TryGetProperty("weapon", out var wp) ? wp.GetString() ?? "primary" : "primary";
-                        _inbox.Enqueue(gl => gl.Enqueue(new ShootCommand(Guid.Parse(playerId), w)));
+                        _inbox.Enqueue(gl => gl.Enqueue(new ShootCommand(playerGuid, w)));
                         break;
                 }
             }
+        }
+        catch (JsonException ex)
+        {
+            _log.LogWarning(ex, "Bad JSON payload for battle {BattleId}", BattleId);
         }
         catch (Exception ex)
         {
@@ -147,8 +179,6 @@ public sealed class GameWorld
                 _loop.Tick((float)TickDt);
 
                 // сериализуем снапшот и вещаем всем
-                var snapshot = _loop.Snapshot;
-
                 var bytes = JsonSerializer.SerializeToUtf8Bytes(
                     _loop.Snapshot,
                     GameContextJsonContext.Default.GameContext
@@ -157,13 +187,14 @@ public sealed class GameWorld
                 List<Client> copy;
                 lock (_clientsLock) copy = _clients.ToList();
 
+                var tick = (int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 50);
                 foreach (var c in copy)
                 {
                     try
                     {
                         var update = new ServerUpdate
                         {
-                            Tick = (int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 50),
+                            Tick = tick,
                             State = ByteString.CopyFrom(bytes)
                         };
                         await c.Stream.WriteAsync(update, ct);
@@ -175,7 +206,10 @@ public sealed class GameWorld
                     }
                 }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+                // graceful shutdown
+            }
             catch (Exception ex)
             {
                 _log.LogError(ex, "World loop error for battle {BattleId}", BattleId);
@@ -187,18 +221,21 @@ public sealed class GameWorld
 
     public void EnsurePlayer(string playerId)
     {
-        // если в твоём GameLoop есть метод «создать/зарегистрировать игрока», вызови его
-        // либо сделай ленивую инициализацию (если у тебя корабль создаётся при первой команде — форсируй тут)
-        _inbox.Enqueue(gl =>
+        if (!Guid.TryParse(playerId, out var guid))
         {
-            gl.RegisterPlayer(Guid.Parse(playerId)); 
-        });
+            _log.LogWarning("Bad playerId format for EnsurePlayer in battle {BattleId}: {PlayerId}", BattleId, playerId);
+            return;
+        }
+        _inbox.Enqueue(gl => gl.RegisterPlayer(guid));
     }
 
     public async Task WriteSnapshotOnceAsync(Client c, CancellationToken ct)
     {
         // сериализуем текущий снапшот и шлём одному клиенту
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(_loop.Snapshot /* или с JsonContext */);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(
+            _loop.Snapshot,
+            GameContextJsonContext.Default.GameContext
+        );
         await c.Stream.WriteAsync(new ServerUpdate
         {
             Tick = (int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 50),

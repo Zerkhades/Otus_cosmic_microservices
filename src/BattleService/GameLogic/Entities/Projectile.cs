@@ -9,7 +9,7 @@ namespace BattleService.GameLogic.Entities
     {
         public Guid Id { get; init; } = Guid.NewGuid();
         public Guid OwnerShipId { get; init; }
-        public Vector2 Position { get; private set; }
+        public Vector2 Position { get; set; }
         public Vector2 Velocity { get; private set; }
         public float RotationDeg { get; private set; }
         public float Damage { get; init; }
