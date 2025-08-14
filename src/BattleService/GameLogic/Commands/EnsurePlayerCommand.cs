@@ -1,12 +1,14 @@
 ﻿using BattleService.GameLogic.Abstractions;
 using BattleService.GameLogic.Engine;
 using BattleService.GameLogic.Entities;
+using BattleService.GameLogic.Weapons;
 using System;
 
 namespace BattleService.GameLogic.Commands
 {
     public sealed class EnsurePlayerCommand : ICommand
     {
+        //private readonly IWeaponFactory _weapons;
         public EnsurePlayerCommand(Guid playerId)
         {
             PlayerId = playerId;
@@ -29,6 +31,7 @@ namespace BattleService.GameLogic.Commands
 
             // 3) Создаём корабль со стартовым состоянием
             var ship = new Ship(PlayerId, new Vector2(x, y));
+            ship.Equip(new RocketLauncher()); // пример оружия
 
             ctx.Ships.Add(PlayerId, ship);
         }

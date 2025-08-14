@@ -9,8 +9,13 @@ namespace BattleService.GameLogic.Entities
         public Guid Id { get; init; } = Guid.NewGuid();
         public Guid PlayerId { get; init; }
         public Vector2 Position { get; set; }
-        public Vector2 Velocity { get; private set; }
+        public Vector2 Velocity { get; set; }
+        public float Radius { get; init; } = 18f;
+        public float Mass { get; init; } = 1f;
         public float RotationDeg { get; private set; }
+        public float MaxHp { get; init; } = 100;
+        public float Hp { get; set; } = 100;
+        public bool IsAlive => Hp > 0;
 
         private readonly List<IWeapon> _weapons = new();
 

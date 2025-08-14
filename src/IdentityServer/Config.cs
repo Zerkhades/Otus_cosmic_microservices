@@ -30,9 +30,21 @@ namespace IdentityServer
             AllowedGrantTypes = GrantTypes.Code,
             RequirePkce = true,
             RequireClientSecret = false,
-            RedirectUris = { "http://localhost:5173/callback" },
-            PostLogoutRedirectUris = { "http://localhost:5173" },
-            AllowedCorsOrigins   = { "http://localhost:5173" },
+            RedirectUris =
+            {
+                "http://localhost:5173/callback",
+                "http://192.168.9.142:5173/callback"
+            },
+            PostLogoutRedirectUris =
+            {
+                "http://localhost:5173",
+                "http://192.168.9.142:5173"
+            },
+            AllowedCorsOrigins =
+            {
+                "http://localhost:5173",
+                "http://192.168.9.142:5173"
+            },
             AllowedScopes =
             {
                 IdentityServerConstants.StandardScopes.OpenId,

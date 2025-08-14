@@ -12,7 +12,9 @@ namespace BattleService.GameLogic.Entities
         public Vector2 Position { get; set; }
         public Vector2 Velocity { get; private set; }
         public float RotationDeg { get; private set; }
-        public float Damage { get; init; }
+        public float Radius { get; init; } = 3f;
+        public bool IsAlive { get; set; } = true;
+        public float Damage { get; init; } = 10;
 
         public Projectile(Guid owner, Vector2 pos, Vector2 vel, float damage)
         {

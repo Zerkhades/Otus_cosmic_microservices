@@ -56,9 +56,11 @@ builder.Services.Configure<ForwardedHeadersOptions>(o =>
 builder.Services.AddCors(opt =>
 {
     opt.AddPolicy("spa", p => p
-        .WithOrigins("http://localhost:5173")
+        .WithOrigins("http://localhost:5173",
+                     "http://192.168.9.142:5173")
         .AllowAnyHeader()
-        .AllowAnyMethod());
+        .AllowAnyMethod()
+        .AllowCredentials()); // на будущее для эндпоинтов, где нужны куки
 });
 
 builder.Services.AddRazorPages();

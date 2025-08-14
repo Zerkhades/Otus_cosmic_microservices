@@ -7,6 +7,7 @@ using PlayerService.Application.Queries;
 using PlayerService.Infrastructure.Persistence;
 using PlayerService.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,12 +38,23 @@ builder.Services.AddOpenTelemetry()
         .AddPrometheusExporter()
         .AddPrometheusExporter());
 
-builder.Services.AddAuthentication("Bearer")
-    .AddJwtBearer("Bearer", o =>
+// Auth: accept tokens from internal and external issuers
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, o =>
     {
-        o.Authority = "http://identityserver:7000";
         o.RequireHttpsMetadata = false;
-        o.Audience = "player-api";
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateAudience = false,
+            ValidIssuers = new[]
+            {
+                "http://identityserver:7000/auth",
+                "http://192.168.9.142:8080/auth",
+                "http://localhost:8080/auth"
+            }
+        };
+        // If you call IdentityServer directly inside cluster
+        o.Authority = "http://identityserver:7000/auth";
     });
 
 builder.Services.AddAuthorization();
@@ -62,6 +74,8 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 
 // ———————————————————————————
 // HTTP Endpoints (CQRS)

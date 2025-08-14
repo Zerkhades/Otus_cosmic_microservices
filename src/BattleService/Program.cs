@@ -42,6 +42,7 @@ builder.Services
             ValidIssuers = new[]
             {
                 "http://identityserver:7000/auth",
+                "http://192.168.9.142:8080/auth",
                 "http://localhost:8080/auth"
             }
         };

@@ -7,6 +7,8 @@ using TournamentService.Application.Queries;
 using TournamentService.Infrastructure.Persistence;
 using TournamentService.Infrastructure.Repositories;
 using TournamentService.Infrastructure.Repositories.Kafka;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
@@ -36,6 +38,26 @@ builder.Services.AddOpenTelemetry()
         .AddMeter("TournamentService")
         .AddPrometheusExporter());
 
+// Auth (if endpoints require auth later) – configure issuers now
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =>
+    {
+        o.RequireHttpsMetadata = false;
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateAudience = false,
+            ValidIssuers = new[]
+            {
+                "http://identityserver:7000/auth",
+                "http://192.168.9.142:8080/auth",
+                "http://localhost:8080/auth"
+            }
+        };
+        o.Authority = "http://identityserver:7000/auth";
+    });
+
+builder.Services.AddAuthorization();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -45,6 +67,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 
 // ————————————————————————
 // HTTP Endpoints

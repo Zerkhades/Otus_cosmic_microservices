@@ -14,6 +14,7 @@ using OpenTelemetry.Metrics;
 using System.Net.Http;
 using System.Security.Claims;
 using System.Text.Json;
+using static System.Net.WebRequestMethods;
 
 var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
@@ -56,7 +57,14 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowedOrigins", policy =>
     {
-        policy.WithOrigins(cfg.GetSection("AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:5173" })
+        // Разрешаем локальные и LAN-оригины по умолчанию, если не задано в конфиге
+        var allowed = cfg.GetSection("AllowedOrigins").Get<string[]>()
+                     ?? new[]
+                     {
+                         "http://localhost:5173",
+                         "http://192.168.9.142:5173"
+                     };
+        policy.WithOrigins(allowed)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -87,6 +95,7 @@ builder.Services
             ValidIssuers = new[]
             {
                 "http://identityserver:7000/auth", // внутренняя
+                "http://192.168.9.142:8080/auth",
                 "http://localhost:8080/auth"       // внешняя (через YARP)
             }
         };

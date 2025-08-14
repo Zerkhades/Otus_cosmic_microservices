@@ -126,7 +126,7 @@ public sealed class GameWorld
                             break;
 
                         case "SHOOT":
-                            _inbox.Enqueue(gl => gl.Enqueue(new ShootCommand(playerGuid, "primary")));
+                            _inbox.Enqueue(gl => gl.Enqueue(new ShootCommand(playerGuid, "ROCKET")));
                             break;
                     }
                 }
