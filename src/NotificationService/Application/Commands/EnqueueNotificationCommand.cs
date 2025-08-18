@@ -38,11 +38,11 @@ public class EnqueueNotificationCommandHandler : IRequestHandler<EnqueueNotifica
             // Save notification to database (outbox pattern)
             await _repo.AddAsync(entity, cancellationToken);
             await _repo.SaveChangesAsync(cancellationToken);
-            
+
             // Attempt real-time delivery via SignalR
-            await _hubContext.Clients.Group(request.RecipientId.ToString())
-                .SendAsync("notify", request.Type, request.PayloadJson, cancellationToken);
-                
+            await _hubContext.Clients.User(request.RecipientId.ToString())
+                .SendAsync("notify", request.Type, new { text = request.PayloadJson }, cancellationToken);
+
             // Mark as sent if delivered successfully
             await _repo.MarkAsSentAsync(entity.Id, cancellationToken);
             

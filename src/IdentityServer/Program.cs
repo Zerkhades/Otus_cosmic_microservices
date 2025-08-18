@@ -37,11 +37,13 @@ builder.Services
 
 builder.Services.AddIdentityServer(options =>
 {
+    options.IssuerUri = "http://192.168.9.142:8080/auth";
     options.Authentication.CookieSameSiteMode = SameSiteMode.Lax;
     options.Authentication.CheckSessionCookieSameSiteMode = SameSiteMode.Lax;
 })
     .AddInMemoryIdentityResources(Config.IdentityResources)
     .AddInMemoryApiScopes(Config.ApiScopes)
+    .AddInMemoryApiResources(Config.ApiResources)
     .AddInMemoryClients(Config.Clients)
     .AddAspNetIdentity<ApplicationUser>();
 
@@ -81,10 +83,12 @@ await Seed.CreateTestUser(app.Services);
     app.MapOpenApi();
 }
 
-app.UseAuthentication();
 
-app.UseForwardedHeaders();
+// ПОРЯДОК ВАЖЕН:
+app.UseForwardedHeaders();     // <— до PathBase/IdentityServer
 app.UsePathBase("/auth");
+
+// CORS для SPA-страниц IS (не обязателен для токен-эндпоинтов)
 app.UseCors("spa");
 
 app.UseCookiePolicy(new CookiePolicyOptions

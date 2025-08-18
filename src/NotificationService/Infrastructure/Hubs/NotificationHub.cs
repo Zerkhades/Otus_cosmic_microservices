@@ -1,8 +1,10 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using System.Security.Claims;
 
 namespace NotificationService.Infrastructure.Hubs;
 
+[Authorize(Policy = "notif-scope")]
 public class NotificationHub : Hub
 {
     private readonly ILogger<NotificationHub> _logger;

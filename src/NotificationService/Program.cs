@@ -1,6 +1,10 @@
-using MediatR;
+﻿using MediatR;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using NotificationService.Application.Commands;
+using NotificationService.Domains;
 using NotificationService.Infrastructure.Hubs;
 using NotificationService.Infrastructure.Kafka;
 using NotificationService.Infrastructure.Persistence;
@@ -16,6 +20,47 @@ var cfg = builder.Configuration;
 var cnstr = cfg.GetConnectionString("Default");
 builder.Services.AddDbContext<AppDbContext>(opts =>
     opts.UseNpgsql(cfg.GetConnectionString("Default")));
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+  .AddJwtBearer(o =>
+  {
+      // тот же самый, что IssuerUri в IdentityServer
+      o.Authority = "http://192.168.9.142:8080/auth";
+      o.RequireHttpsMetadata = false; // за прокси/в dev
+
+      // если сделал ApiResource — можем включить ValidateAudience:
+      o.TokenValidationParameters = new TokenValidationParameters
+      {
+          ValidateAudience = true,
+          ValidAudience = "notification-api",
+          NameClaimType = "sub"
+      };
+
+      // достаём токен из query для WebSocket
+      o.Events = new JwtBearerEvents
+      {
+          OnMessageReceived = ctx => {
+              if (HttpMethods.IsOptions(ctx.Request.Method))
+              { // preflight
+                  ctx.NoResult(); // не пытаться аутентифицировать
+                  return Task.CompletedTask;
+              }
+              var accessToken = ctx.Request.Query["access_token"];
+              if (!string.IsNullOrEmpty(accessToken) &&
+                  ctx.HttpContext.Request.Path.StartsWithSegments("/ws/notifications"))
+              {
+                  ctx.Token = accessToken;
+              }
+              return Task.CompletedTask;
+          }
+      };
+  });
+
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("notif-scope", p =>
+        p.RequireClaim("scope", "notification-api"));
+
+builder.Services.AddSingleton<IUserIdProvider, SubUserIdProvider>();
 
 // SignalR
 builder.Services.AddSignalR()
@@ -43,12 +88,17 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowedOrigins", policy =>
     {
-        policy.WithOrigins(cfg.GetSection("AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:5173" })
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
+        //policy.WithOrigins(cfg.GetSection("AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:5173", "http://192.168.9.142:5173", "http://192.168.9.142:5004⁠" })
+        //    .AllowAnyHeader()
+        //    .AllowAnyMethod()
+        //    .AllowCredentials();
+        policy.SetIsOriginAllowed(_ => true)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
     });
 });
+
 
 builder.Services.AddOpenTelemetry()
     .WithMetrics(b => b
@@ -77,6 +127,9 @@ using (var scope = app.Services.CreateScope())
 
 
 app.UseCors("AllowedOrigins");
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 // SignalR endpoint
 app.MapHub<NotificationHub>("/ws/notifications");

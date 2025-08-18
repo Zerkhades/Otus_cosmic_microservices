@@ -11,7 +11,7 @@ namespace BattleService.GameLogic.Weapons
         {
             var rad = owner.RotationDeg * MathF.PI / 180f;
             var dir = new Vector2(MathF.Cos(rad), MathF.Sin(rad));
-            var pos = owner.Position + dir * 10f;
+            var pos = owner.Position + dir * 40f;
             var vel = dir * 8f;
             return new Projectile(owner.Id, pos, vel, damage: 40);
         }
