@@ -62,6 +62,7 @@ builder.Services.AddHostedService<BattleTimerService>();
 // Kafka producer
 var kafkaConfig = new ProducerConfig { BootstrapServers = cfg["Kafka:BootstrapServers"] };
 builder.Services.AddSingleton(_ => new ProducerBuilder<string, string>(kafkaConfig).Build());
+builder.Services.AddSingleton<IKafkaConsumerFactory, KafkaConsumerFactory>();
 builder.Services.AddSingleton<IKafkaProducerWrapper, KafkaProducerWrapper>();
 
 // Kafka consumer background service
@@ -70,6 +71,7 @@ builder.Services.AddHostedService<KafkaConsumerHostedService>();
 builder.Services.AddGameLogic();
 builder.Services.AddSingleton<IGameLoopFactory, GameLoopFactory>();
 builder.Services.AddSingleton<BattleWorldManager>();
+
 builder.Services.AddHostedService<WorldCleanupService>();
 
 builder.Services.AddOpenTelemetry()

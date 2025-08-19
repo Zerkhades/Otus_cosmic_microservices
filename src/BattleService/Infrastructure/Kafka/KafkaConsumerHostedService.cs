@@ -1,3 +1,4 @@
+// Updated KafkaConsumerHostedService.cs (only constructor + creation spot changed)
 using System.Text.Json;
 using BattleService.Application.Commands;
 using Confluent.Kafka;
@@ -11,24 +12,26 @@ public class KafkaConsumerHostedService : BackgroundService
     private readonly IConfiguration _cfg;
     private readonly IMediator _mediator;
     private readonly IHostApplicationLifetime _appLifetime;
+    private readonly IKafkaConsumerFactory _consumerFactory;
 
     public KafkaConsumerHostedService(
         ILogger<KafkaConsumerHostedService> logger,
         IConfiguration cfg,
         IMediator mediator,
-        IHostApplicationLifetime appLifetime)
+        IHostApplicationLifetime appLifetime,
+        IKafkaConsumerFactory consumerFactory)   // <-- injected
     {
         _logger = logger;
         _cfg = cfg;
         _mediator = mediator;
         _appLifetime = appLifetime;
+        _consumerFactory = consumerFactory;
     }
 
     private IConsumer<string, string>? _consumer;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Дождаться полного старта веб-приложения (Kestrel и т.п.)
         var tcsStarted = new TaskCompletionSource();
         using var reg = _appLifetime.ApplicationStarted.Register(() => tcsStarted.TrySetResult());
         await tcsStarted.Task.WaitAsync(stoppingToken);
@@ -38,19 +41,13 @@ public class KafkaConsumerHostedService : BackgroundService
             BootstrapServers = _cfg["Kafka:BootstrapServers"],
             GroupId = "battle-service",
             AutoOffsetReset = AutoOffsetReset.Earliest,
-            // Чтобы не виснуть в бесконечных DNS/сокет операциях
             SocketTimeoutMs = 10000,
-            // По желанию: снизит шум ретраев при потере коннекта
             EnableAutoCommit = true
         };
 
         _logger.LogInformation("Starting Kafka consumer for topic 'battle.created'...");
 
-        // Создаём consumer только здесь, а не в конструкторе
-        using var consumer = new ConsumerBuilder<string, string>(consumerConfig)
-            .SetErrorHandler((_, e) => _logger.LogWarning("Kafka error: {Reason}", e.Reason))
-            .Build();
-
+        using var consumer = _consumerFactory.Create(consumerConfig, _logger); // <-- here
         _consumer = consumer;
 
         try
@@ -58,14 +55,12 @@ public class KafkaConsumerHostedService : BackgroundService
             consumer.Subscribe("battle.created");
             _logger.LogInformation("Kafka consumer subscribed and running.");
 
-            // Основной цикл: короткие таймауты, чтобы реагировать на отмену
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
                     var cr = consumer.Consume(TimeSpan.FromSeconds(1));
-                    if (cr == null) continue; // таймаут — просто проверили токен и дальше
-
+                    if (cr == null) continue;
                     if (cr.IsPartitionEOF) continue;
 
                     _logger.LogInformation("Received battle.created event: {Payload}", cr.Message.Value);
@@ -105,7 +100,14 @@ public class KafkaConsumerHostedService : BackgroundService
                 catch (ConsumeException ex)
                 {
                     _logger.LogWarning(ex, "Kafka consume exception (will retry)");
-                    await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // graceful shutdown during backoff
+                    }
                 }
                 catch (OperationCanceledException)
                 {
@@ -114,7 +116,14 @@ public class KafkaConsumerHostedService : BackgroundService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Unexpected error in consumer loop");
-                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // graceful shutdown during backoff
+                    }
                 }
             }
         }
@@ -122,7 +131,7 @@ public class KafkaConsumerHostedService : BackgroundService
         {
             try
             {
-                consumer.Close(); // корректный коммит оффсетов и выход из группы
+                consumer.Close();
             }
             catch (Exception ex)
             {

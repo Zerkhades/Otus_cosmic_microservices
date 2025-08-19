@@ -52,7 +52,7 @@ namespace BattleService.GameLogic.Engine
         private static void UpdatePosition(IMovable obj, float dt)
         {
             var newPos = obj.Position + obj.Velocity * dt;
-            typeof(IMovable).GetProperty("Position")!.SetValue(obj, newPos);
+            obj.Position = newPos;
         }
         /// <summary>
         /// Гарантирует, что в мире есть корабль игрока. Потокобезопасно:
