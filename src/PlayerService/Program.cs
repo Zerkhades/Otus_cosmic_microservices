@@ -8,6 +8,7 @@ using PlayerService.Infrastructure.Persistence;
 using PlayerService.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,7 +20,7 @@ var cfg = builder.Configuration;
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(cfg.GetConnectionString("Default")));
 
-builder.Services.AddMediatR(cfg => 
+builder.Services.AddMediatR(cfg =>
     cfg.RegisterServicesFromAssemblyContaining<CreatePlayerCommand>());
 
 builder.Services.AddScoped<IPlayerRepository, PlayerRepository>();
@@ -92,9 +93,23 @@ app.MapGet("/players/{id:guid}", async (Guid id, IMediator mediator) =>
     return player is null ? Results.NotFound() : Results.Ok(player);
 });
 
+// ———————————————————————————
+// GET /players/me (òåêóùèé ïîëüçîâàòåëü)
+// ———————————————————————————
+app.MapGet("/players/me", async (HttpContext ctx, IMediator mediator) =>
+{
+    var sub = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? ctx.User.FindFirstValue("sub");
+    if (!Guid.TryParse(sub, out var userId))
+    {
+        return Results.BadRequest("Invalid or missing user id (sub) claim.");
+    }
+
+    var player = await mediator.Send(new GetPlayerQuery(userId));
+    return player is null ? Results.NotFound() : Results.Ok(player);
+}).RequireAuthorization();
+
 app.UseOpenTelemetryPrometheusScrapingEndpoint();
 
 app.MapGet("/", () => Results.Content("Player Service is running", contentType: "text/plain"));
-
 
 app.Run();
