@@ -3,6 +3,11 @@ using BattleService.GameLogic.Entities;
 
 namespace BattleService.GameLogic.Weapons
 {
+    /// <summary>
+    /// Weapon base class.
+    /// ABSTRACT: all weapons must inherit from this class.
+    /// Pattern: Template Method.
+    /// </summary>
     public abstract class WeaponBase : IWeapon
     {
         public abstract string Code { get; }

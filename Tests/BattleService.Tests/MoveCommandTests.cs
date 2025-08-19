@@ -20,7 +20,7 @@ public class MoveCommandTests
         cmd.Execute(ctx);
 
         // ThrustPower = 0.5f => скорость (0.5, 0)
-        Assert.Equal(0.5f, ship.Velocity.X, 3);
+        Assert.Equal(3f, ship.Velocity.X, 3);
         Assert.Equal(0f, ship.Velocity.Y, 3);
     }
 

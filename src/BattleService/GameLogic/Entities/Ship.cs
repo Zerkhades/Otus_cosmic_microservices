@@ -27,8 +27,8 @@ namespace BattleService.GameLogic.Entities
         }
 
         #region IMovable
-        private const float MaxSpeed = 10f;
-        private const float ThrustPower = 0.5f;
+        private const float MaxSpeed = 30f;
+        private const float ThrustPower = 3f;
 
         public void ApplyThrust(float delta)
         {

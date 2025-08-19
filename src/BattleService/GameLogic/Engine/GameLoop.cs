@@ -3,6 +3,7 @@ using BattleService.GameLogic.Commands;
 using BattleService.GameLogic.Entities;
 using System;
 using System.Linq;
+using BattleService.GameLogic.Engine.Systems;
 
 namespace BattleService.GameLogic.Engine
 {
@@ -17,8 +18,31 @@ namespace BattleService.GameLogic.Engine
     {
         private readonly GameContext _ctx = new();
         private readonly Queue<ICommand> _queue = new();
+        private readonly SpatialHashGrid _grid;
+        private readonly IGameSystem[] _systems;
+
         public GameContext Snapshot => _ctx;
-        private readonly SpatialHashGrid _grid = new(cellSize: 64f);
+
+        public GameLoop()
+            : this(new SpatialHashGrid(cellSize: 64f), null)
+        {
+        }
+
+        internal GameLoop(SpatialHashGrid grid, IGameSystem[]? systems = null)
+        {
+            _grid = grid;
+
+            // Пайплайн по умолчанию
+            _systems = systems ?? new IGameSystem[]
+            {
+                new MovementSystem(),
+                new SpatialIndexSystem(_grid),
+                new ShipCollisionSystem(_grid, restitution: 0.2f, damping: 0.6f),
+                new ProjectileCollisionSystem(_grid),
+                new CleanupSystem()
+            };
+        }
+
         public void Enqueue(ICommand cmd) => _queue.Enqueue(cmd);
 
         public void Tick(float dt)
@@ -28,32 +52,11 @@ namespace BattleService.GameLogic.Engine
             // 1) команды
             while (_queue.TryDequeue(out var cmd)) cmd.Execute(_ctx);
 
-            // 2) физика
-            foreach (var m in _ctx.Ships.Values.Cast<IMovable>().Concat(_ctx.Projectiles.Values))
-                UpdatePosition(m, dt);
-
-            // 3) перестроить grid
-            _grid.Clear();
-            foreach (var s in _ctx.Ships.Values) _grid.Insert(s);
-            foreach (var p in _ctx.Projectiles.Values.Where(p => p.IsAlive)) _grid.Insert(p);
-
-            // 4) коллизии
-            ResolveShipShipGrid(_ctx, _grid, restitution: 0.2f, damping: 0.6f);
-            ResolveProjectileShipGrid(_ctx, _grid);
-
-            // 5) зачистка «мертвых»
-            foreach (var dead in _ctx.Projectiles.Values.Where(p => !p.IsAlive).Select(p => p.Id).ToArray())
-                _ctx.Projectiles.Remove(dead);
-
-            foreach (var deadShip in _ctx.Ships.Values.Where(s => !s.IsAlive).Select(s => s.Id).ToArray())
-                _ctx.Ships.Remove(deadShip);
+            // 2..N) системы симуляции
+            foreach (var system in _systems)
+                system.Update(_ctx, dt);
         }
 
-        private static void UpdatePosition(IMovable obj, float dt)
-        {
-            var newPos = obj.Position + obj.Velocity * dt;
-            obj.Position = newPos;
-        }
         /// <summary>
         /// Гарантирует, что в мире есть корабль игрока. Потокобезопасно:
         /// просто кладёт команду в очередь, обработка — в тике.
@@ -61,79 +64,6 @@ namespace BattleService.GameLogic.Engine
         public void RegisterPlayer(Guid playerId)
         {
             Enqueue(new EnsurePlayerCommand(playerId));
-        }
-        private static void ResolveShipShipGrid(GameContext ctx, SpatialHashGrid grid, float restitution, float damping)
-        {
-            // чтобы не обрабатывать пары дважды
-            var seen = new HashSet<(Guid, Guid)>();
-
-            foreach (var a in ctx.Ships.Values)
-            {
-                foreach (var b in grid.QueryShipsAround(a.Position))
-                {
-                    if (a.Id == b.Id) continue;
-
-                    // нормализованный «ключ пары», чтобы (a,b) == (b,a)
-                    var key = a.Id.CompareTo(b.Id) < 0 ? (a.Id, b.Id) : (b.Id, a.Id);
-                    if (!seen.Add(key)) continue;
-
-                    var sumR = a.Radius + b.Radius;
-                    var distSq = Vector2.DistanceSquared(a.Position, b.Position);
-                    if (distSq > sumR * sumR) continue;
-
-                    var dist = MathF.Sqrt(MathF.Max(distSq, 1e-6f));
-                    var n = (b.Position - a.Position) * (1f / dist);
-
-                    var penetration = sumR - dist;
-                    var corr = n * (penetration * 0.5f);
-
-                    a.Position -= corr;
-                    b.Position += corr;
-
-                    a.Velocity *= damping;
-                    b.Velocity *= damping;
-
-                    // небольшая упругая составляющая по нормали
-                    var vaN = a.Velocity.X * n.X + a.Velocity.Y * n.Y;
-                    var vbN = b.Velocity.X * n.X + b.Velocity.Y * n.Y;
-                    var impulse = (vbN - vaN) * restitution;
-                    a.Velocity += n * impulse;
-                    b.Velocity -= n * impulse;
-                }
-            }
-        }
-
-        private static void ResolveProjectileShipGrid(GameContext ctx, SpatialHashGrid grid)
-        {
-            foreach (var p in ctx.Projectiles.Values)
-            {
-                if (!p.IsAlive) continue;
-
-                foreach (var s in grid.QueryShipsAround(p.Position))
-                {
-                    // при желании исключи самострелы:
-                    // if (p.OwnerId == s.Id) continue;
-
-                    var sumR = p.Radius + s.Radius;
-                    if (Vector2.DistanceSquared(p.Position, s.Position) > sumR * sumR) continue;
-
-                    // попадание
-                    ctx.Hits.Add((s.Id, p.Id, p.Damage));
-                    p.IsAlive = false;
-
-                    // применяем урон
-                    s.Hp = Math.Max(0, s.Hp - p.Damage);
-
-                    // лёгкий «тычок» по нормали — визуальный отклик
-                    var delta = s.Position - p.Position;
-                    var dist = MathF.Sqrt(MathF.Max(delta.X * delta.X + delta.Y * delta.Y, 1e-6f));
-                    var n = new Vector2(delta.X / dist, delta.Y / dist);
-                    s.Velocity += n * 20f;
-
-                    // этот снаряд больше никого не заденет
-                    break;
-                }
-            }
         }
     }
 

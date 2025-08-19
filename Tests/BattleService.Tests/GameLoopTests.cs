@@ -25,7 +25,7 @@ public class GameLoopTests
         loop.Tick(1.0f); // v += 0.5, x += 0.5
 
         var endX = loop.Snapshot.Ships[playerId].Position.X;
-        Assert.InRange(endX - startX, 0.49f, 0.51f);
+        Assert.InRange(endX - startX, 2.9f, 3.1f);
     }
 
     [Fact]
