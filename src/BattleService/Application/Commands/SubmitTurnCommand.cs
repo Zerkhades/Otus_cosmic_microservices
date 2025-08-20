@@ -19,6 +19,7 @@ public class SubmitTurnCommandHandler : IRequestHandler<SubmitTurnCommand>
 
     public Task Handle(SubmitTurnCommand request, CancellationToken cancellationToken)
     {
+        // TODO: Add customexception handling for better error management
         try
         {
             if (!_store.TryGet(request.BattleId, out var battle))

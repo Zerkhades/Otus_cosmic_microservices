@@ -24,11 +24,9 @@ builder.Services.AddDbContext<AppDbContext>(opts =>
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
   .AddJwtBearer(o =>
   {
-      // тот же самый, что IssuerUri в IdentityServer
       o.Authority = "http://192.168.9.142:8080/auth";
-      o.RequireHttpsMetadata = false; // за прокси/в dev
+      o.RequireHttpsMetadata = false;
 
-      // если сделал ApiResource — можем включить ValidateAudience:
       o.TokenValidationParameters = new TokenValidationParameters
       {
           ValidateAudience = true,
@@ -88,10 +86,6 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowedOrigins", policy =>
     {
-        //policy.WithOrigins(cfg.GetSection("AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:5173", "http://192.168.9.142:5173", "http://192.168.9.142:5004⁠" })
-        //    .AllowAnyHeader()
-        //    .AllowAnyMethod()
-        //    .AllowCredentials();
         policy.SetIsOriginAllowed(_ => true)
               .AllowAnyHeader()
               .AllowAnyMethod()

@@ -29,12 +29,14 @@ public class FinishBattleCommandHandler : IRequestHandler<FinishBattleCommand, b
 
     public async Task<bool> Handle(FinishBattleCommand request, CancellationToken cancellationToken)
     {
+        // TODO: Add customexception handling for better error management
         if (!_store.TryGet(request.BattleId, out var battle))
         {
             _logger.LogWarning("Battle with ID {BattleId} not found", request.BattleId);
             return false;
         }
 
+        // TODO: Add customexception handling for better error management
         if (battle.Status == Domains.BattleStatus.Finished)
         {
             _logger.LogInformation("Battle with ID {BattleId} is already finished", request.BattleId);

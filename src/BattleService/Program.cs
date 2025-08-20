@@ -97,7 +97,7 @@ app.UseCustomExceptionHandler();
 // Add gRPC service
 app.MapGrpcService<BattleSyncService>();
 
-// Add minimal API endpoint to manually finish a battle
+// Add minimalAPI endpoint to manually finish a battle
 app.MapPost("/api/battles/{id:guid}/finish", async (Guid id, IMediator mediator) =>
 {
     var result = await mediator.Send(new FinishBattleCommand(id));

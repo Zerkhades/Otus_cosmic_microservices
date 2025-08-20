@@ -19,6 +19,7 @@ public class StartBattleCommandHandler : IRequestHandler<StartBattleCommand>
 
     public Task Handle(StartBattleCommand request, CancellationToken cancellationToken)
     {
+        // TODO: Add customexception handling for better error management
         try
         {
             var battle = new Battle

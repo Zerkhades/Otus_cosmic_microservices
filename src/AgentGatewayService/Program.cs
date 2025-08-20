@@ -28,12 +28,12 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddGrpc();          // не обязателен, но ок
+builder.Services.AddGrpc();
 builder.Services.AddSignalR();
 
 builder.Services.AddMediatR(opt => opt.RegisterServicesFromAssemblyContaining<Program>());
 
-// gRPC client (если где-то инжектируется) — база HTTP, не HTTPS
+// gRPC client
 builder.Services
   .AddGrpcClient<BattleSynchronizer.BattleSynchronizerClient>(o =>
   {
@@ -135,7 +135,7 @@ app.UseOpenTelemetryPrometheusScrapingEndpoint();
 
 // --- Endpoints ---
 
-// SignalR (если используешь для чего-то)
+// SignalR
 app.MapHub<AgentHub>("/hubs/agent");
 
 // Контроллеры (в т.ч. [Authorize] на экшенах)
@@ -147,7 +147,7 @@ app.MapGet("/healthz", () => Results.Ok("ok"));
 // Статус
 app.MapGet("/", () => Results.Content("Agent Gateway Service up", contentType: "text/plain"));
 
-// Демонстрационный матчмейкинг — требует авторизации
+// матчмейкинг — требует авторизации
 app.MapPost("/api/matchmaking/casual", async (
     ClaimsPrincipal user,
     HttpContext ctx,
@@ -156,10 +156,6 @@ app.MapPost("/api/matchmaking/casual", async (
 {
     var tournamentId = "42aa8186-e520-49a3-9631-847d8b84129b";
     var battleId = "42aa8186-e520-49a3-9631-847d8b84129a";
-
-    //var playerIdStr = ctx.User.FindFirst("sub")?.Value;
-    //if (!Guid.TryParse(playerIdStr, out var playerId))
-    //    return Results.Unauthorized();
 
     var payload = JsonSerializer.Serialize(new
     {
@@ -173,7 +169,7 @@ app.MapPost("/api/matchmaking/casual", async (
     return Results.Ok(new { battleId });
 });//.RequireAuthorization();
 
-// Подключение агента через менеджер (если используешь)
+// Подключение агента через менеджер
 app.MapPost("/api/battles/{battleId:guid}/connect", async (
     Guid battleId,
     [FromQuery] Guid playerId,
