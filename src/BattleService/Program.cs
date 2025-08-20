@@ -1,6 +1,7 @@
 using BattleService.Application.Commands;
 using BattleService.Application.Events;
 using BattleService.Application.Worlds;
+using BattleService.Extentions;
 using BattleService.GameLogic;
 using BattleService.GameLogic.Engine;
 using BattleService.Infrastructure.Kafka;
@@ -90,6 +91,8 @@ var app = builder.Build();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.UseCustomExceptionHandler();
 
 // Add gRPC service
 app.MapGrpcService<BattleSyncService>();
