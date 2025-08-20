@@ -9,10 +9,10 @@ public class Player
 
     private Player() { }
     
-    public Player(string userName)
+    public Player(string userName, int rating = 1000)
     {
         UserName = userName;
-        Rating = 1000; // Default ELO rating
+        Rating = rating;
     }
 
     public void UpdateRating(int delta) => Rating += delta;
