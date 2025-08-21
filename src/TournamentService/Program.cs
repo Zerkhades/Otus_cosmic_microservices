@@ -17,6 +17,24 @@ var cfg = builder.Configuration;
 builder.Services.Configure<MongoSettings>(cfg.GetSection("Mongo"));
 builder.Services.AddSingleton<MongoContext>();
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowedOrigins", policy =>
+    {
+        // Разрешаем локальные и LAN-оригины по умолчанию, если не задано в конфиге
+        var allowed = cfg.GetSection("AllowedOrigins").Get<string[]>()
+                     ?? new[]
+                     {
+                         "http://localhost:5173",
+                         "http://192.168.9.142:5173"
+                     };
+        policy.WithOrigins(allowed)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
 // MediatR
 builder.Services.AddMediatR(cfg => 
     cfg.RegisterServicesFromAssemblyContaining<CreateTournamentCommand>());
@@ -50,6 +68,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 "http://identityserver:7000/auth",
                 "http://192.168.9.142:8080/auth",
+                "http://localhost:5173",
                 "http://localhost:8080/auth"
             }
         };
@@ -58,9 +77,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+//builder.Services.AddCors(options =>
+//{
+//    options.AddPolicy("AllowedOrigins", policy =>
+//    {
+//        policy.SetIsOriginAllowed(_ => true)
+//              .AllowAnyHeader()
+//              .AllowAnyMethod()
+//              .AllowCredentials();
+//    });
+//});
+
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+//if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
@@ -96,6 +126,8 @@ app.MapGet("/tournaments/{id:guid}", async (Guid id, IMediator mediator) =>
     var dto = await mediator.Send(new GetTournamentDetailsQuery(id));
     return dto is null ? Results.NotFound() : Results.Ok(dto);
 });
+
+app.MapGet("/", () => Results.Content("Tournament Service up", contentType: "text/plain"));
 
 app.UseOpenTelemetryPrometheusScrapingEndpoint();
 

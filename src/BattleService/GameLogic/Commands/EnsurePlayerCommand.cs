@@ -26,8 +26,8 @@ namespace BattleService.GameLogic.Commands
             //    чтобы игроки не появлялись в одном месте.
             var (x, y, angle) = GetSpawnPoint(
                 PlayerId,
-                100,   // <-- переименуй под свои поля
-                100); // <--
+                100,
+                100);
 
             // 3) Создаём корабль со стартовым состоянием
             var ship = new Ship(PlayerId, new Vector2(x, y));
@@ -38,12 +38,10 @@ namespace BattleService.GameLogic.Commands
 
         private static (float x, float y, float angle) GetSpawnPoint(Guid id, float width, float height)
         {
-            // простой стабильный "хэш" из GUID
             int h = 17;
             foreach (var b in id.ToByteArray())
                 unchecked { h = h * 31 + b; }
 
-            // t ∈ [0..1)
             var t = (h & 0x7FFFFFFF) / (float)int.MaxValue;
 
             // спаун по окружности вокруг центра
