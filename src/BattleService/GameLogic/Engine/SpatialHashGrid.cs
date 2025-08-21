@@ -2,7 +2,7 @@
 
 namespace BattleService.GameLogic.Engine
 {
-    internal sealed class SpatialHashGrid
+    public sealed class SpatialHashGrid
     {
         private readonly float _cell;
         private readonly Dictionary<long, Cell> _cells = new();
